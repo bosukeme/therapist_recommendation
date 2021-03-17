@@ -6,9 +6,9 @@ from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from nltk.tokenize import RegexpTokenizer
 import string
+from decouple import config as env_config
 
-
-MONGO_URL = "mongodb+srv://bloverse:b1XNYDtSQNEv5cAn@bloverse-production.fbt75.mongodb.net/blovids?retryWrites=true&w=majority"  #os.environ.get("MONGO_URL")
+MONGO_URL =  env_config('MONGO_URL')
 
 client= MongoClient(MONGO_URL, connect=False)
 db = client.bacp_counselling
@@ -21,7 +21,7 @@ def get_therapist_from_db():
     super_pow_therapist_collection = db.super_pow_therapist_collection
     cur = super_pow_therapist_collection.count_documents({})
 
-    all_therapist=list(super_pow_therapist_collection.find({}, {"_id": 0}))
+    all_therapist=list(super_pow_therapist_collection.find({}))
     
     return all_therapist
 
@@ -34,11 +34,14 @@ def get_initial_score(all_therapist, language, ethnicity, lgbt):
     initial_score = []
     comments = []
     therapist_language = []
+    therapist_ids = []
     
     
     for item in all_therapist:
         score = 0
         comment = []
+        therapist_id = str(item['_id'])
+
         if language.lower() in item['language'].lower():
             
             score +=2
@@ -64,11 +67,13 @@ def get_initial_score(all_therapist, language, ethnicity, lgbt):
                 
         except:
             pass
+
         therapist_language.append(item['language'])
         initial_score.append(score)
         comments.append(comment)
+        therapist_ids.append(therapist_id)
     
-    return initial_score, comments, therapist_language
+    return initial_score, comments, therapist_language, therapist_ids
 
 
 def get_additional_score(all_therapist, user_symptoms):
@@ -120,11 +125,12 @@ def get_additional_score(all_therapist, user_symptoms):
     return other_score, therapist_name, symptoms
 
 
-def merge_scores(initial_score, other_score, therapist_name, symptoms, comments, therapist_language):
+def merge_scores(initial_score, other_score, therapist_name, symptoms, comments, therapist_language, therapist_ids):
     complete_score = [initial_score[i] + other_score[i] for i in range(len(initial_score))] 
 
     df = pd.DataFrame()
 
+    df['therapist_id'] = therapist_ids
     df['therapist_name'] = therapist_name
     df['therapist_language'] = therapist_language
     df['score'] = complete_score
@@ -138,11 +144,11 @@ def merge_scores(initial_score, other_score, therapist_name, symptoms, comments,
 def get_recommendations(language, ethnicity, lgbt, user_symptoms):
     all_therapist = get_therapist_from_db()
     
-    initial_score, comments, therapist_language = get_initial_score(all_therapist, language, ethnicity, lgbt)
-    
+    initial_score, comments, therapist_language, therapist_ids = get_initial_score(all_therapist, language, ethnicity, lgbt)
+
     other_score, therapist_name, symptoms = get_additional_score(all_therapist, user_symptoms)
     
-    df = merge_scores(initial_score, other_score, therapist_name, symptoms, comments, therapist_language)
+    df = merge_scores(initial_score, other_score, therapist_name, symptoms, comments, therapist_language, therapist_ids)
     
     return df.to_dict('records')[:3]
 
