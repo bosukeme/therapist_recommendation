@@ -10,12 +10,13 @@ class TherapistRecommendation(Resource):
             parser.add_argument('ethnicity', type=str, help="The ethnicity of the user")
             parser.add_argument('lgbt', type=str, help="The lgbtq choice of the user")
             parser.add_argument('user_symptoms', type=str, help="the symptoms of the user")
+            parser.add_argument('gender', type=str, help="the user's choice of the therapists gender")
 
             args = parser.parse_args()
 
 
 
-            result = get_recommendations(args['language'], args['ethnicity'], args['lgbt'], args['user_symptoms'])
+            result = get_recommendations(args['language'], args['ethnicity'], args['lgbt'], args['user_symptoms'], args['gender'])
             return {
                 'status': 'success',
                 'data': result, 

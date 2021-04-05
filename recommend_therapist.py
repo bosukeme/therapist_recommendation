@@ -18,23 +18,24 @@ def get_therapist_from_db():
     '''
         Query the DB and return all the therapist saved there
     '''
-    super_pow_therapist_collection = db.super_pow_therapist_collection
-    cur = super_pow_therapist_collection.count_documents({})
+    trying_collection = db.trying_collection
 
-    all_therapist=list(super_pow_therapist_collection.find({}))
-    
+    all_therapist = list(trying_collection.find({}))    
+
     return all_therapist
 
 
 
-def get_initial_score(all_therapist, language, ethnicity, lgbt):
+def get_initial_score(all_therapist, language, ethnicity, lgbt, gender):
     '''
-        loop through the therapist and score them based on language, ethnicity and lgbtq choice
+        loop through the therapists and score them based on language, ethnicity and lgbtq choice
     '''
     initial_score = []
     comments = []
-    therapist_language = []
+    therapist_language_list = []
     therapist_ids = []
+    language_scores_list = []
+    ethnicity_scores_list = []
     
     
     for item in all_therapist:
@@ -42,38 +43,92 @@ def get_initial_score(all_therapist, language, ethnicity, lgbt):
         comment = []
         therapist_id = str(item['_id'])
 
-        if language.lower() in item['language'].lower():
+        ###### score on Gender selection
+        if gender.lower() == item['Gender'].lower():
+            score+=1
+            comment.append("Matched by Gender Choice")
+
             
-            score +=2
+        ###### score by age selection
+        try:
+            therapist_age_datetime =  item['Date of Birth']
+            therapist_year = datetime.strptime(therapist_age_datetime, '%d/%M/%Y').year
+            current_year = datetime.now().year
+
+            therapist_age = current_year - therapist_year
+        except:
+            therapist_age = "NA"
+        
+        
+        ##### score on language selection
+        user_language = language.lower()  
+        therapist_language = item['Languages You Speak (separate by comma)'].lower()
+        
+        user_language_df = pd.Series(user_language)
+        therapist_language_df = pd.Series(therapist_language)
+        
+        tfidf_vec=TfidfVectorizer(stop_words='english')
+        tfidf_vec.fit(therapist_language_df)
+
+        
+        therapist_language_tfidf = tfidf_vec.transform(therapist_language_df)
+        user_language_tfidf = tfidf_vec.transform(user_language_df)
+        
+
+        language_scores = therapist_language_tfidf.dot(user_language_tfidf[0].toarray().T)[0][0]
+        language_scores_list.append(language_scores)
+        
+        if language_scores > 0.5:
             comment.append("Matched by language")
+        else:
+            pass
+        
+
+        ##### score by ethnicity selection
+        user_ethnicity = ethnicity.lower()  
+        therapist_ethnicity = item['Ethnicity'].lower()
+    
+        user_ethnicity_df = pd.Series(user_ethnicity)
+        therapist_ethnicity_df = pd.Series(therapist_ethnicity)
+        
+        tfidf_vec=TfidfVectorizer(stop_words='english')
+        tfidf_vec.fit(therapist_ethnicity_df)
+
+        
+        therapist_ethnicity_tfidf = tfidf_vec.transform(therapist_ethnicity_df)
+        user_ethnicity_tfidf = tfidf_vec.transform(user_ethnicity_df)
+        
+        
+        ethnicity_scores = therapist_ethnicity_tfidf.dot(user_ethnicity_tfidf[0].toarray().T)[0][0]
+        ethnicity_scores_list.append(ethnicity_scores)
+        
+        if ethnicity_scores > 0.5:
+            comment.append("Matched by Ethnicity")
         else:
             pass
 
 
-        if ethnicity.lower() == item['Ethnicity'].lower():
-            score+=1
-            comment.append("Matched by Ethnicity")
-
-
         try:
-            if lgbt.lower() == "yes" and ("lgbtq" in item['bio'].lower() or "lgbt" in item.get('HoW I WORK').lower() or "lgbt" in item['What I CAN HELP WITH'].lower()):
-                score +=1
+            if lgbt.lower() == item['Are you a member of the LGBT community?'].lower():
+                score+=1
                 comment.append("Matched by LGBTQ choice")
+            
+            elif lgbt.lower() == "doesn't matter":
+                score+=0.5
+                
+            else:
+                pass
 
-            elif lgbt.lower() == "no":
-                score +=0
-            elif lgbt.lower() == "maybe" and ("lgbtq" in item['bio'].lower() or "lgbt" in item.get('HoW I WORK').lower() or "lgbt" in item['What I CAN HELP WITH'].lower()):
-                score +=0.5
                 
         except:
             pass
 
-        therapist_language.append(item['language'])
+        therapist_language_list.append(item['Languages You Speak (separate by comma)'])
         initial_score.append(score)
         comments.append(comment)
         therapist_ids.append(therapist_id)
     
-    return initial_score, comments, therapist_language, therapist_ids
+    return initial_score, comments, therapist_language_list, therapist_ids, language_scores_list, ethnicity_scores_list
 
 
 def get_additional_score(all_therapist, user_symptoms):
@@ -90,7 +145,7 @@ def get_additional_score(all_therapist, user_symptoms):
         user_symptoms_df = pd.Series(user_symptoms)
         
         try:
-            therapist_symptoms = item['What I CAN HELP WITH']
+            therapist_symptoms = str(item['What I can help with'])
             therapist_df = pd.Series(therapist_symptoms)
         except:
             therapist_df = pd.Series("nil")
@@ -106,7 +161,7 @@ def get_additional_score(all_therapist, user_symptoms):
         similarity_scores = therapist_tfidf.dot(user_symptoms_tfidf[0].toarray().T)[0][0]
 
         other_score.append(similarity_scores)
-        therapist_name.append(item['name'])
+        therapist_name.append(item['Name'])
 
 
         user_symptoms_tokens = word_tokenize(user_symptoms)
@@ -125,15 +180,19 @@ def get_additional_score(all_therapist, user_symptoms):
     return other_score, therapist_name, symptoms
 
 
-def merge_scores(initial_score, other_score, therapist_name, symptoms, comments, therapist_language, therapist_ids):
-    complete_score = [initial_score[i] + other_score[i] for i in range(len(initial_score))] 
+def merge_scores(therapist_ids, initial_score, other_score, therapist_name, symptoms, comments, therapist_language, language_scores_list, ethnicity_scores_list):
+    complete_score_1 = [initial_score[i] + other_score[i] for i in range(len(initial_score))] 
+    
+    complete_score_2 = [language_scores_list[i] + ethnicity_scores_list[i] for i in range(len(language_scores_list))]
+    
+    total_score = [complete_score_1[i] + complete_score_2[i] for i in range(len(complete_score_1))]
 
     df = pd.DataFrame()
-
+    
     df['therapist_id'] = therapist_ids
     df['therapist_name'] = therapist_name
     df['therapist_language'] = therapist_language
-    df['score'] = complete_score
+    df['score'] = total_score
     df['matching_comments'] = comments
     df['matching_symptoms'] = symptoms
     
@@ -141,14 +200,16 @@ def merge_scores(initial_score, other_score, therapist_name, symptoms, comments,
     
     return df
 
-def get_recommendations(language, ethnicity, lgbt, user_symptoms):
+
+def get_recommendations(language, ethnicity, lgbt, user_symptoms, gender):
+    
     all_therapist = get_therapist_from_db()
     
-    initial_score, comments, therapist_language, therapist_ids = get_initial_score(all_therapist, language, ethnicity, lgbt)
-
+    initial_score, comments, therapist_language, therapist_ids, language_scores_list, ethnicity_scores_list = get_initial_score(all_therapist, language, ethnicity, lgbt, gender)
+    
     other_score, therapist_name, symptoms = get_additional_score(all_therapist, user_symptoms)
     
-    df = merge_scores(initial_score, other_score, therapist_name, symptoms, comments, therapist_language, therapist_ids)
+    df = merge_scores(therapist_ids, initial_score, other_score, therapist_name, symptoms, comments, therapist_language, language_scores_list, ethnicity_scores_list)
     
     return df.to_dict('records')[:3]
 
