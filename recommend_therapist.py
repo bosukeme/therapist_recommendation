@@ -11,16 +11,16 @@ from decouple import config as env_config
 MONGO_URL =  env_config('MONGO_URL')
 
 client= MongoClient(MONGO_URL, connect=False)
-db = client.bacp_counselling
+db = client["superpow-therapist"]
 
 
 def get_therapist_from_db():
     '''
         Query the DB and return all the therapist saved there
     '''
-    trying_collection = db.trying_collection
+    therapists = db.therapists
 
-    all_therapist = list(trying_collection.find({}))    
+    all_therapist = list(therapists.find({}))    
 
     return all_therapist
 
@@ -44,7 +44,7 @@ def get_initial_score(all_therapist, language, ethnicity, lgbt, gender):
         therapist_id = str(item['_id'])
 
         ###### score on Gender selection
-        if gender.lower() == item['Gender'].lower():
+        if gender.lower() == item['gender'].lower():
             score+=1
             comment.append("Matched by Gender Choice")
 
@@ -62,7 +62,7 @@ def get_initial_score(all_therapist, language, ethnicity, lgbt, gender):
         
         ##### score on language selection
         user_language = language.lower()  
-        therapist_language = item['Languages You Speak (separate by comma)'].lower()
+        therapist_language = item['language'].lower()
         
         user_language_df = pd.Series(user_language)
         therapist_language_df = pd.Series(therapist_language)
@@ -86,7 +86,7 @@ def get_initial_score(all_therapist, language, ethnicity, lgbt, gender):
 
         ##### score by ethnicity selection
         user_ethnicity = ethnicity.lower()  
-        therapist_ethnicity = item['Ethnicity'].lower()
+        therapist_ethnicity = item['ethnicity'].lower()
     
         user_ethnicity_df = pd.Series(user_ethnicity)
         therapist_ethnicity_df = pd.Series(therapist_ethnicity)
@@ -109,7 +109,7 @@ def get_initial_score(all_therapist, language, ethnicity, lgbt, gender):
 
 
         try:
-            if lgbt.lower() == item['Are you a member of the LGBT community?'].lower():
+            if lgbt.lower() == item['lgbtq'].lower():
                 score+=1
                 comment.append("Matched by LGBTQ choice")
             
@@ -123,7 +123,7 @@ def get_initial_score(all_therapist, language, ethnicity, lgbt, gender):
         except:
             pass
 
-        therapist_language_list.append(item['Languages You Speak (separate by comma)'])
+        therapist_language_list.append(item['language'])
         initial_score.append(score)
         comments.append(comment)
         therapist_ids.append(therapist_id)
@@ -145,7 +145,8 @@ def get_additional_score(all_therapist, user_symptoms):
         user_symptoms_df = pd.Series(user_symptoms)
         
         try:
-            therapist_symptoms = str(item['What I can help with'])
+            therapist_symptoms = item['specialty']
+            therapist_symptoms = " ".join(therapist_symptoms)
             therapist_df = pd.Series(therapist_symptoms)
         except:
             therapist_df = pd.Series("nil")
@@ -161,7 +162,8 @@ def get_additional_score(all_therapist, user_symptoms):
         similarity_scores = therapist_tfidf.dot(user_symptoms_tfidf[0].toarray().T)[0][0]
 
         other_score.append(similarity_scores)
-        therapist_name.append(item['Name'])
+        full_name = item['firstName'] + " " + item['lastName']
+        therapist_name.append(full_name)
 
 
         user_symptoms_tokens = word_tokenize(user_symptoms)
@@ -212,4 +214,5 @@ def get_recommendations(language, ethnicity, lgbt, user_symptoms, gender):
     df = merge_scores(therapist_ids, initial_score, other_score, therapist_name, symptoms, comments, therapist_language, language_scores_list, ethnicity_scores_list)
     
     return df.to_dict('records')[:3]
+
 
